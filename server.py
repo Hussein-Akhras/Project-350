@@ -33,9 +33,12 @@ while True:
     conn, addr = server.accept()
     print(f"New connection from {addr}")
 
+<<<<<<< HEAD
     thread = threading.Thread(target=handle_client, args=(conn, addr))
     thread.start()
 
+=======
+>>>>>>> d21ecf1a625821489a9ffc57ef7d47ab6374cd75
 
 def handle_client(conn, addr):
     print(f"Started handler for {addr}")
@@ -54,4 +57,8 @@ def handle_client(conn, addr):
 
     finally:
         conn.close()
+<<<<<<< HEAD
         print(f"Connection closed for {addr}")
+=======
+        print(f"Connection closed for {addr}")
+>>>>>>> d21ecf1a625821489a9ffc57ef7d47ab6374cd75
