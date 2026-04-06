@@ -11,7 +11,17 @@ BOARD_HEIGHT = 20
 # FUNCTION LIST 
 #==============================================================
 
-
+# match termination 
+def finish_match_if_needed():
+    global current_match
+    with match_lock:
+        if current_match is None or current_match["status"] != "finished": return None
+        p1, p2 = current_match["player1"], current_match["player2"]
+        s1, s2 = current_match["scores"][p1], current_match["scores"][p2]
+        winner = p1 if s1 > s2 else p2 if s2 > s1 else "draw"
+        result = {"type": "game_over", "winner": winner, "scores": current_match["scores"].copy(), "players": [p1, p2]}
+        current_match = None
+        return result
 
 #collision go boom
 def apply_collision_damage():
