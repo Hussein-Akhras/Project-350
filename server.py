@@ -4,20 +4,60 @@ import sys
 
 from protocol import send_json, receive_json
 
+BOARD_WIDTH = 30
+BOARD_HEIGHT = 20
+
 
 # FUNCTION LIST 
 #==============================================================
 
-#snake moving 
 
+
+#collision go boom
+def apply_collision_damage():
+    global current_match
+    with match_lock:
+        if current_match is None: 
+            return
+        for player in [current_match["player1"], current_match["player2"]]:
+            head = current_match["snakes"][player][0]
+            if hit_wall_or_obstacle(head, current_match["obstacles"]):
+                current_match["scores"][player] -= 20
+
+            if current_match["scores"][player] <= 0:
+                current_match["status"] = "finished"
+
+#collision detection
+def hit_wall_or_obstacle(head, obstacles):
+    x, y = head
+    if x < 0 or x >= BOARD_WIDTH: return True
+    if y < 0 or y >= BOARD_HEIGHT: return True
+    if head in obstacles: return True
+    return False
+
+# match updating 
+def advance_match():
+    with match_lock:
+        if current_match is None or current_match["status"] != "running": return
+        players = [current_match["player1"], current_match["player2"]]
+    for player in players:
+        move_one_snake(player)
+
+#snake moving 
 def move_one_snake(username):
     with match_lock:
-        if current_match is None: return
+        if current_match is None:
+            return
         snake = current_match["snakes"][username]
+
         new_head = next_head_position(snake[0], current_match["directions"][username])
+
         snake.insert(0, new_head)
-        if new_head in current_match["pies"]: current_match["scores"][username] += 10; current_match["pies"].remove(new_head)
-        else: snake.pop()
+
+        if new_head in current_match["pies"]:
+             current_match["scores"][username] += 10; current_match["pies"].remove(new_head)
+        else:
+            snake.pop()
 
 #direction handeling 
 def next_head_position(head, direction):
@@ -101,8 +141,11 @@ def handle_client(conn, addr):
             if msg_type == "input":
                 direction = message.get("direction", "").strip().upper()
                 handle_input(username, direction)
+                advance_match()
+                apply_collision_damage()
                 send_match_state()
                 continue
+
 
             if message is None:
                 break
