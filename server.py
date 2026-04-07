@@ -8,7 +8,7 @@ from protocol import send_json, receive_json
 
 BOARD_WIDTH = 30
 BOARD_HEIGHT = 20
-
+MATCH_DURATION = 120
 OPPOSITES = {"UP": "DOWN", "DOWN": "UP", "LEFT": "RIGHT", "RIGHT": "LEFT"}
 
 
@@ -31,6 +31,13 @@ def run_match_loop():
         time.sleep(0.2)
         with match_lock:
             if current_match is None or current_match["status"] != "running": break
+            if time.time() >= current_match["end_time"]: current_match["status"] = "finished"
+        result = finish_match_if_needed()
+        if result is not None:
+            with clients_lock:
+                for player in result["players"]:
+                    if player in clients: send_json(clients[player], result)
+            broadcast_player_lists(); break
         advance_match()
         respawn_pie()
         apply_collision_damage()
@@ -39,7 +46,8 @@ def run_match_loop():
         if result is not None:
             with clients_lock:
                 for player in result["players"]:
-                    if player in clients: send_json(clients[player], result)
+                    if player in clients:
+                        send_json(clients[player], result)
             broadcast_player_lists()
             break
 
@@ -181,9 +189,11 @@ def send_match_state():
 def broadcast_player_lists():
     with clients_lock:
         usernames = list(clients.keys())
-        for name, conn in clients.items():
-            send_json(conn, {"type": "player_list", "players": [u for u in usernames if u != name]})
-
+    for name in usernames:
+        players = [u for u in usernames if u != name and not player_in_current_match(u)]
+        with clients_lock:
+            if name in clients:
+                send_json(clients[name], {"type": "player_list", "players": players})
 #client handeling fucntion
 def handle_client(conn, addr):
     print(f"Started handler for {addr}")
@@ -288,7 +298,8 @@ def handle_challenge(conn, challenger, target):
             "snakes": {challenger: [(5, 10), (4, 10), (3, 10)], target: [(24, 10), (25, 10), (26, 10)]},
             "pies": [(15, 10)],
             "obstacles": [(10, 6), (10, 7), (20, 12), (20, 13)],
-            "status": "running"
+            "status": "running",
+            "end_time": time.time() + MATCH_DURATION
         }
 
     send_json(conn, {"type": "match_started", "role": "player1", "opponent": target})
