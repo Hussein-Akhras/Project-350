@@ -2,11 +2,14 @@ import socket
 import threading
 import sys
 import random
+import time
 
 from protocol import send_json, receive_json
 
 BOARD_WIDTH = 30
 BOARD_HEIGHT = 20
+
+OPPOSITES = {"UP": "DOWN", "DOWN": "UP", "LEFT": "RIGHT", "RIGHT": "LEFT"}
 
 
 # FUNCTION LIST 
@@ -14,7 +17,49 @@ BOARD_HEIGHT = 20
 
 
 
+def head_to_head_collision():
+    with match_lock:
+        if current_match is None: return False
+        p1, p2 = current_match["player1"], current_match["player2"]
+        h1 = current_match["snakes"][p1][0]
+        h2 = current_match["snakes"][p2][0]
+        return h1 == h2
 
+#time loop 
+def run_match_loop():
+    while True:
+        time.sleep(0.2)
+        with match_lock:
+            if current_match is None or current_match["status"] != "running": break
+        advance_match()
+        respawn_pie()
+        apply_collision_damage()
+        send_match_state()
+        result = finish_match_if_needed()
+        if result is not None:
+            with clients_lock:
+                for player in result["players"]:
+                    if player in clients: send_json(clients[player], result)
+            broadcast_player_lists()
+            break
+
+# hrob min el match 
+def abort_match_on_disconnect(username):
+    global current_match
+    with match_lock:
+        if current_match is None or not player_in_current_match(username): return None
+        p1, p2 = current_match["player1"], current_match["player2"]
+        winner = p2 if username == p1 else p1
+        result = {"type": "game_over", "winner": winner, "reason": "disconnect", "scores": current_match["scores"].copy(), "players": [p1, p2]}
+        current_match = None
+        return result
+
+#check for the current players
+def player_in_current_match(username):
+    with match_lock:
+        if current_match is None or current_match["status"] != "running":
+            return False
+        return username in {current_match["player1"], current_match["player2"]}
 
 #cool addition randomly generated pie respawns so every match doesnt feel the same
 def respawn_pie():
@@ -59,6 +104,10 @@ def apply_collision_damage():
     with match_lock:
         if current_match is None: 
             return
+        if head_to_head_collision():
+            current_match["scores"][current_match["player1"]] -= 25
+            current_match["scores"][current_match["player2"]] -= 25
+
         for player in [current_match["player1"], current_match["player2"]]:
             head = current_match["snakes"][player][0]
             if hit_wall_or_obstacle(head, current_match["obstacles"]) or hit_snake(player):
@@ -109,12 +158,14 @@ def next_head_position(head, direction):
     return head
 
 #handles client inputs 
+
 def handle_input(username, direction):
-    if direction not in {"UP", "DOWN", "LEFT", "RIGHT"}: return
+    if direction not in OPPOSITES: return
     with match_lock:
         if current_match is None or current_match["status"] != "running": return
         if username not in current_match["directions"]: return
-        current_match["directions"][username] = direction
+        current_dir = current_match["directions"][username]
+        if direction != OPPOSITES[current_dir]: current_match["directions"][username] = direction
 
 #mgame state helper
 def send_match_state():
@@ -132,35 +183,6 @@ def broadcast_player_lists():
         usernames = list(clients.keys())
         for name, conn in clients.items():
             send_json(conn, {"type": "player_list", "players": [u for u in usernames if u != name]})
-
-
-#challenge handeling 
-def handle_challenge(conn, challenger, target):
-    with clients_lock:
-      target_conn = clients.get(target)
-
-    if target == "" or target == challenger or target_conn is None : #rject request incase we are not challenging another valid player 
-        send_json(conn, {"type": "error", "message": "Invalid target "})
-        return
-    
-
-    global current_match
-    with match_lock:
-        if current_match is not None:
-            send_json(conn, {"type": "error", "message": "A match is already running"})
-            return
-        current_match = {
-            "player1": challenger, "player2": target,
-            "scores": {challenger: 100, target: 100},
-            "directions": {challenger: "RIGHT", target: "LEFT"},
-            "snakes": {challenger: [(5, 10), (4, 10), (3, 10)], target: [(24, 10), (25, 10), (26, 10)]},
-            "pies": [(15, 10)],
-            "obstacles": [(10, 6), (10, 7), (20, 12), (20, 13)],
-            "status": "running"
-        }
-
-
-
 
 #client handeling fucntion
 def handle_client(conn, addr):
@@ -210,16 +232,9 @@ def handle_client(conn, addr):
             if msg_type == "input":
                 direction = message.get("direction", "").strip().upper()
                 handle_input(username, direction)
-                advance_match()
-                apply_collision_damage()
-                send_match_state()
-                result = finish_match_if_needed()
-                if result is not None:
-                    with clients_lock:
-                        for player in result["players"]:
-                            if player in clients: send_json(clients[player], result)
-                    broadcast_player_lists()
                 continue
+
+
 
 
             if message is None:
@@ -231,6 +246,12 @@ def handle_client(conn, addr):
         print(f"Error with {addr}: {e}")
 
     finally:
+        result = abort_match_on_disconnect(username)
+        if result is not None:
+            with clients_lock:
+                for player in result["players"]:
+                    if player in clients: send_json(clients[player], result)
+
         if username is not None:
             with clients_lock:
                 if username in clients:
@@ -250,6 +271,10 @@ def handle_challenge(conn, challenger, target):
         send_json(conn, {"type": "error", "message": "Invalid target "})
         return
     
+    if player_in_current_match(challenger) or player_in_current_match(target):
+        send_json(conn, {"type": "error", "message": "One of the players is already in a match"})
+        return
+    
 
     global current_match
     with match_lock:
@@ -266,16 +291,13 @@ def handle_challenge(conn, challenger, target):
             "status": "running"
         }
 
-
-
-
     send_json(conn, {"type": "match_started", "role": "player1", "opponent": target})
     send_json(target_conn, {"type": "match_started", "role": "player2", "opponent": challenger})
     send_match_state()
+    match_thread = threading.Thread(target=run_match_loop, daemon=True)
+    match_thread.start()
     broadcast_player_lists()
     print(f"Match started: {challenger} vs {target}")
-
-
 
 #===============================================================
 
@@ -293,7 +315,7 @@ clients_lock = threading.Lock()
 
 #match list#
 current_match = None
-match_lock = threading.Lock()
+match_lock = threading.RLock()
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.binf((HOST,PORT))
