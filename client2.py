@@ -214,6 +214,8 @@ def draw_game():
     draw_text(f"Opponent: {state.get('opponent', '')}", FONT, WHITE, 220, 20)
     draw_text(f"Score: {state['scores'].get(state.get('you', ''), 0)}", FONT, GREEN, 40, 60)
     draw_text(f"Enemy Score: {state['scores'].get(state.get('opponent', ''), 0)}", FONT, RED, 220, 60)
+    draw_text(f"Health: {state['scores'].get(state.get('you', ''), 0)}", FONT, GREEN, 40, 60)
+    draw_text(f"Enemy Health: {state['scores'].get(state.get('opponent', ''), 0)}", FONT, RED, 220, 60)  
     draw_text(status_message, SMALL_FONT, YELLOW, 40, 95)
     for cell in state.get("obstacles", []):
         rect = cell_rect(cell)

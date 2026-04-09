@@ -13,3 +13,8 @@ def receive_json(sock_file):
 
 
 
+#python server.py 5000
+
+#python client.py 127.0.0.1 5000
+
+#python client2.py 127.0.0.1 5000

@@ -28,20 +28,25 @@ def head_to_head_collision():
 #time loop 
 def run_match_loop():
     while True:
-        time.sleep(0.2)
+        time.sleep(0.15)
         with match_lock:
-            if current_match is None or current_match["status"] != "running": break
-            if time.time() >= current_match["end_time"]: current_match["status"] = "finished"
+            if current_match is None or current_match["status"] != "running":
+                break
+            if time.time() >= current_match["end_time"]:
+                current_match["status"] = "finished"
         result = finish_match_if_needed()
         if result is not None:
             with clients_lock:
                 for player in result["players"]:
                     if player in clients: send_json(clients[player], result)
             broadcast_player_lists(); break
+        
+
         advance_match()
         respawn_pie()
         apply_collision_damage()
         send_match_state()
+        
         result = finish_match_if_needed()
         if result is not None:
             with clients_lock:
@@ -98,7 +103,8 @@ def hit_snake(player):
 def finish_match_if_needed():
     global current_match
     with match_lock:
-        if current_match is None or current_match["status"] != "finished": return None
+        if current_match is None or current_match["status"] != "finished": 
+            return None
         p1, p2 = current_match["player1"], current_match["player2"]
         s1, s2 = current_match["scores"][p1], current_match["scores"][p2]
         winner = p1 if s1 > s2 else p2 if s2 > s1 else "draw"
@@ -113,10 +119,12 @@ def apply_collision_damage():
         if current_match is None: 
             return
         if head_to_head_collision():
+
             current_match["scores"][current_match["player1"]] -= 25
             current_match["scores"][current_match["player2"]] -= 25
 
         for player in [current_match["player1"], current_match["player2"]]:
+
             head = current_match["snakes"][player][0]
             if hit_wall_or_obstacle(head, current_match["obstacles"]) or hit_snake(player):
                 current_match["scores"][player] -= 20
@@ -244,9 +252,6 @@ def handle_client(conn, addr):
                 handle_input(username, direction)
                 continue
 
-
-
-
             if message is None:
                 break
 
@@ -329,8 +334,8 @@ current_match = None
 match_lock = threading.RLock()
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.binf((HOST,PORT))
-server.listen
+server.bind((HOST,PORT))
+server.listen()
 print(f"sever listening on {HOST}:{PORT}")
 
 #main server accept loop do not touch this or server go boom #
